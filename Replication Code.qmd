@@ -1,0 +1,47 @@
+---
+title: "Replication Code"
+format: html
+editor: visual
+---
+
+### Intro
+
+All quoted portions in this document are from the following paper: <https://onlinelibrary.wiley.com/doi/10.1002/ajpa.24665>
+
+This paper includes two distinct analyses, one which includes humans and one which does not. The processes are identical between these groups, so I have elected to only do the non-human analysis for this project in order to make differences easier to see.
+
+### Citation
+
+Lewton, Kristi L. “An Integrative Approach to Examining the Influences of Size, Phylogeny, and Locomotion on Os Coxae Shape Variation in Primates.” *American Journal of Biological Anthropology*, vol. 183, no. 3, Mar. 2024, p. e24665. *DOI.org (Crossref)*, https://doi.org/10.1002/ajpa.24665.
+
+### Setup
+
+```{r setup, include = FALSE}
+knitr::opts_knit$set(root.dir = "C:/Users/isabe/OneDrive/Documents/data-replication") 
+```
+
+```{r}
+#| warning: FALSE 
+#| outcome: FALSE  
+
+#Packages  
+library(geomorph) 
+library(geiger) 
+library(tidyverse)  
+library(ggplot2) 
+library(curl) 
+library(psych) 
+library(Morpho) 
+```
+
+```{r}
+#File Creation  #NHP Landmarks landmarks.raw <- read.csv("NHP landmarks.csv", header = TRUE, row.names = 1, stringsAsFactors = FALSE) View(landmarks.raw)  #NHP Labels labels <- read.csv("NHP labels.csv", header=TRUE, row.names=1, stringsAsFactors = FALSE) #labels <- as.matrix(labels)  #Wireframe Map  #tells which landmarks to draw lines/calc distances between wireframe <- as.matrix(read.csv("wireframe.csv", header=FALSE)) View(wireframe)  #Species Names by specimen species <-read.csv("NHP specimen taxon locomotion list.csv", header=TRUE, row.names = 1) View(species)
+```
+
+```{r} # Data Cleaning  #1. Reflect all left-side data so all specimens are right-side  #Requires labels and landmarks.raw files to be in the same order and same length    for(i in 1:nrow(labels)) {   if(labels[i,8] == "L") { #checks if L/R for each     landmarks.raw[i, ] <- (-1)*(landmarks.raw[i, ]) #multiplies all coordinates by -1 if it is L   } }  #2. Create coordinates for each spec, each landmark is a row as [X, Y, Z] landmarks <- arrayspecs(landmarks.raw, 20, 3)  #3. Put all the data into one list d <- list("landmarks" = landmarks, "labels" = labels, "wireframe" = wireframe)  #Datasets: d, landmarks, landmarks.raw, labels, wireframe}
+```
+
+### General Procrustes Analysis
+
+```{}
+```
