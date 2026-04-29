@@ -31,7 +31,8 @@ library(tidyverse)
 library(ggplot2) 
 library(curl) 
 library(psych) 
-library(Morpho) 
+library(Morpho)
+library(colorspace)
 ```
 
 ```{r}
@@ -174,7 +175,7 @@ View(loco)
 #3. Call phylogeny
 #need to use {geiger}
 tree <- read.tree(file = "Springer 2012 tree.txt")
-plot(tree) #just a check, not pretty! 
+plot(tree, cex = 0.5) #just a check, not pretty! 
 #length(tree$tip.label) #tree is class phylo, 372 represented species
 ```
 
@@ -190,12 +191,152 @@ size.data <- td$data
 td <- treedata(tree, loco, sort = TRUE, warning = TRUE)
 loco.data <- td$data
 
-#the above prunes a bunch of tips to create three versions of the tree based on what is or is not avaiable from our data sets (shape, size, and locomotion
+#the above prunes a bunch of tips to create three versions of the tree based on what is or is not available from our data sets (shape, size, and locomotion
+plot(td$phy, cex = 0.5, color = td$data[,1])
 ```
 
-PGLS - Phylogenetic Models
+### PGLS - Phylogenetic Models
+
+"Concordance between the tree topology and data observations was ensured using the treedata function in the “geiger” R package (Pennell et al., 2014), and distance-based phylogenetic least squares analysis was conducted using the procD.pgls function in the “geomorph” R package (Collyer & Adams, 2018, 2021)."
+
+```{r}
+#Is shape meaningfully predicted by body size + locomotion? 
+
+#1. Build geomorph dataframe
+gdf2 <- geomorph.data.frame(shape  = shape.data,  size    = size.data,  loco = loco.data, phy = td$phy)
+
+#hist(log(size.data))
+#size is more normal when logged- I also ran it without logging and the significance values were the same FYI 
+
+m2 <- procD.pgls(
+  shape ~log(size) + loco,
+  phy    = td$phy,
+  data   = gdf2,
+  iter   = 999,
+)
+
+#1000 permutations, using GLS method
+summary(m2)
+
+#          Df      SS      MS     Rsq      F       Z Pr(>F)  
+#log(size)  1  0.3962 0.39624 0.03465 1.9889  1.7167  0.037 *
+#loco       6  0.8791 0.14651 0.07687 0.7354 -1.1524  0.879  
+#Residuals 51 10.1604 0.19922 0.88848                        
+#Total     58 11.4357   
+```
+
+"Neither size nor locomotion has a significant effect on non-human primate os coxae shape while accounting for phylogeny (Table 4)."
+
+I found significant effect from log(size) but not from locomotion in this model. This may have to do with how size was defined and manipulated in earlier data cleaning, or because I used log transformation.
+
+### Phylogenetic Signal
+
+"Degree of phylogenetic signal (i.e., the tendency for related taxa to exhibit similar phenotypic trait values, Blomberg et al., 2003) in os coxae shape was assessed using the multivariate K statistic (Kmult, Adams, 2014, implemented in the “geomorph” R package)."
+
+A K of 0 would indicate no influence of phylogenetic relatedness to the outcome, a K of >1 would mean any variance observed in the outcome is likely to be a result of relatedness.
+
+```{r}
+signal.shape <- physignal(shape.data, td$phy, iter = 999)
+summary(signal.shape)
+#K = 0.2943, p = 0.001
+
+signal.size <- physignal(size.data, td$phy, iter = 999)
+summary(signal.size)
+#K = 1.2334, p = 0.001
+```
+
+"There is phylogenetic signal in non-human primate os coxae shape (Kmult = 0.29, p = 0.001) and size (K = 1.23, p = 0.001)."
+
+Phylogenetic signal analysis found that size was most likely a factor of relatedness, but shape was not meaningfully attached to phylogenetic relationships, suggesting there are other factors affecting os coxa shape.
 
 
+### Non-Phylogenetic Model
+
+```{r}
+gdf3 <- geomorph.data.frame(shape  = shape.means,  size    = cent.means,  loco = loco)
+
+m3 <- procD.lm(
+  shape ~ log(size) + loco,
+  data   = gdf3,
+  iter   = 999,
+  effect.type = "F"
+)
+summary(m3)
+#log size and loco are both significant
+#log(size): F = 39.7677, p = 0.001
+#loco: F = 5.6358, p = 0.001
+```
+
+"The linear model that does not include phylogeny demonstrates that both size and locomotion have significant effects on nonhuman primate os coxae shape (size R2 = 0.32, F = 39.8, p = 0.001, locomotion R2 = 0.27, F = 5.6, p = 0.001, Table 3)."
+
+In this instance, I was able to accurately replicate the data reported in the paper, with the same R-squared, F, and p values appearing in my model summary. This summary indicates significance of both size and locomotion, which means post-hoc pairwise testing is required for locomotion groups.
+
+### Post-Hoc Testing
+
+```{r}
+m3pw <- pairwise(
+  fit         = m3,
+  fit.null = NULL,
+  groups      = gdf3$loco,
+  covariate = NULL
+)
+summ <- summary(m3pw, test.type = "dist", confidence = 0.95)
+summ$pairwise.tables$P
+```
+
+"Pairwise comparisons of locomotor groups demonstrate that slow climbers are significantly different from all other locomotor groups; suspensory taxa differ from AQ, AQ/TQ, and TQ; and AQ/leap differ from AQ and VCL (Table 7)."
+
+My pairwise test demonstrates that there are statistically significant differences between os coxa shape between numerous pairs of locomotions. When blended categories, species that use AQ and another strategy, are excluded, there are significant differences between all pairs! This is not consistent with what is reported in the paper, though some insights (slow climbers being different than all others) are retained. I am not sure where this distinction comes from, especially because the model itself appeared the same.
+
+### PCA
+
+```{r}
+#Using full dataset from above containing wireframe, labels, and landmarks
+#d <- list("landmarks" = landmarks, "labels" = labels, "wireframe" = wireframe)
+
+#taxon and locomotion
+taxon <- as.factor(d$labels[,11])
+locom <- as.factor(d$labels[, 10])
+
+pca.gdf <- geomorph.data.frame(gpa, taxon = taxon, loco = locom)
+new.coords <- coords.subset(A = pca.gdf$coords, group = taxon)
+
+spmean <- lapply(new.coords, mshape)
+spmean <- simplify2array(spmean, higher=TRUE)
+
+PCA.phylo <- gm.prcomp(spmean, phy=td$phy)
+summary(PCA.phylo)
+
+plot(PCA.phylo)
+```
+
+"The first principal component accounts for 42% of the variation, while the second principal component accounts for 13% of the variation (Figure 2). Centroid size is strongly correlated with and explains 62% of the variation in principal component 1 (PC1; r = −0.79, p < 0.0001)."
+
+In my analysis, PC1 explains 42% of the variation in landmark distance (our proxy of shape) in this analysis, and PC2 accounts for 14.3% of the variation. Together, these two plotted together will explain 56.3% of variation. I imagine that centroid size is correlated in this case as well, but attempts to run a correlation test were not successful, I think because of problems with my object titles and organization that would take too long to troubleshoot. All in all, my PCA looks very similar to Lewton's.
+
+### Visualization
+
+"Differences in os coxae shape among taxa were explored using a phylomorphospace approach implemented in the “geomorph” R package (Adams et al., 2021; Baken et al., 2021)."
+
+```{r}
+data<-read.delim("NHP taxon locomotion list means.csv",sep=",",header=TRUE, row.names=1)
+row.names(data)
+gp<-factor(data$loco)
+
+q8<-qualitative_hcl(8, palette= "Dark 3")
+palette(q8)
+```
 
 
+```{r}
+plot(PCA.phylo, flip=1,axis1=1, axis2=2, pch=21, col="black", bg=gp, cex=1.5, bty="L", phylo = TRUE, phylo.par = list(tip.labels=TRUE, node.labels=FALSE, anc.states=FALSE, edge.color="grey", node.cex=0, tip.txt.cex=0.5, tip.txt.adj=c(-0.15,0.2)))
 
+#tried making the wireframe shapes but couldn't figure out what to do after this? oh well! 
+ref<-mshape(gpa$coords)
+#note: we want to flip axis one so that Fig 3 and Fig 2 have the same layout
+PC1max <- plotRefToTarget(ref,PCA.phylo$shapes$shapes.comp1$min, method="points", links=wireframe)
+PC1min <- plotRefToTarget(ref,PCA.phylo$shapes$shapes.comp1$max, method="points", links=wireframe)
+PC2min <- plotRefToTarget(ref,PCA.phylo$shapes$shapes.comp2$min, method="points", links=wireframe)
+PC2max <- plotRefToTarget(ref,PCA.phylo$shapes$shapes.comp2$max, method="points", links=wireframe)
+
+```
