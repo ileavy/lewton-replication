@@ -16,8 +16,8 @@ Lewton, Kristi L. “An Integrative Approach to Examining the Influences of Size
 
 ### Setup
 
-```{r setup, include = FALSE}
-knitr::opts_knit$set(root.dir = "C:/Users/isabe/OneDrive/Documents/data-replication") 
+```{r, include = FALSE}
+knitr::opts_knit$set(root.dir = "C:/Users/isabe/OneDrive/Documents/lewton-replication") 
 ```
 
 ```{r}
@@ -35,13 +35,167 @@ library(Morpho)
 ```
 
 ```{r}
-#File Creation  #NHP Landmarks landmarks.raw <- read.csv("NHP landmarks.csv", header = TRUE, row.names = 1, stringsAsFactors = FALSE) View(landmarks.raw)  #NHP Labels labels <- read.csv("NHP labels.csv", header=TRUE, row.names=1, stringsAsFactors = FALSE) #labels <- as.matrix(labels)  #Wireframe Map  #tells which landmarks to draw lines/calc distances between wireframe <- as.matrix(read.csv("wireframe.csv", header=FALSE)) View(wireframe)  #Species Names by specimen species <-read.csv("NHP specimen taxon locomotion list.csv", header=TRUE, row.names = 1) View(species)
+#File Creation  
+#NHP Landmarks 
+landmarks.raw <- read.csv("NHP landmarks.csv", header = TRUE, row.names = 1, stringsAsFactors = FALSE)
+View(landmarks.raw)  
+
+#NHP Labels 
+labels <- read.csv("NHP labels.csv", header=TRUE, row.names=1, stringsAsFactors = FALSE) 
+labels <- as.matrix(labels)  
+
+#Wireframe Map  
+#tells which landmarks to draw lines/calc distances between 
+wireframe <- as.matrix(read.csv("wireframe.csv", header=FALSE)) 
+
+#Species Names by specimen 
+species <-read.csv("NHP specimen taxon locomotion list.csv", header=TRUE, row.names = 1) 
+View(species)
 ```
 
-```{r} # Data Cleaning  #1. Reflect all left-side data so all specimens are right-side  #Requires labels and landmarks.raw files to be in the same order and same length    for(i in 1:nrow(labels)) {   if(labels[i,8] == "L") { #checks if L/R for each     landmarks.raw[i, ] <- (-1)*(landmarks.raw[i, ]) #multiplies all coordinates by -1 if it is L   } }  #2. Create coordinates for each spec, each landmark is a row as [X, Y, Z] landmarks <- arrayspecs(landmarks.raw, 20, 3)  #3. Put all the data into one list d <- list("landmarks" = landmarks, "labels" = labels, "wireframe" = wireframe)  #Datasets: d, landmarks, landmarks.raw, labels, wireframe}
+```{r} 
+# Data Cleaning  
+#1. Reflect all left-side data so all specimens are right-side  
+#Requires labels and landmarks.raw files to be in the same order and same length    
+
+for(i in 1:nrow(labels)) {   
+  if(labels[i,8] == "L") { #checks if L/R for each     
+    landmarks.raw[i, ] <- (-1)*(landmarks.raw[i, ]) #multiplies all coordinates by -1 if it is L   
+  } 
+}  
+
+#2. Create coordinates for each spec, each landmark is a row as [X, Y, Z] 
+landmarks <- arrayspecs(landmarks.raw, 20, 3)  
+
+#3. Put all the data into one list 
+
+d <- list("landmarks" = landmarks, "labels" = labels, "wireframe" = wireframe) 
+
+#Datasets: d, landmarks, landmarks.raw, labels, wireframe
 ```
 
 ### General Procrustes Analysis
 
-```{}
+```{r}
+gpa <- gpagen(d$landmarks, max.iter=NULL)
+summary(gpa)
+#20 fixed landmarks
+#0 semilandmarks (sliders)
+#3-dimensional landmarks
+#5 GPA iterations to converge
+
+#Notes
+names(gpa)
+#$coords refers to the coordinates of each of 10(?) landmarks for each species
+#$Csize holds the centroid size calculated for each species based on cumulative distances between each landmark
 ```
+
+```{r}
+#1. Compute shape means by species
+coords <- two.d.array(gpa$coords)
+species <- species$taxon
+
+shape.means <- rowsum(coords, species)/as.vector(table(species))
+
+
+#2. Compute centroid size by species
+cent.means <-rowsum(gpa$Csize, species)/as.vector(table(species))
+
+#3. 
+means <-read.delim("NHP taxon locomotion list means.csv", sep=",", header=TRUE)
+row.names(means)<-means$taxon
+```
+
+### Procrustes ANOVA - sex and species
+
+"To examine the potential effects of sex differences on os coxae shape, a Procrustes analysis of variance was performed on the Procrustes coordinates...with sex and species as factors."
+
+"The non-phylogenetic models were tested using the procD.lm function in the “geomorph” R package."
+
+```{r}
+#Creating a data frame to put into geomorph  
+
+sex_vector <- labels$sex  
+gdf <- geomorph.data.frame(shape  = coords,   sex    = sex_vector,    species = species)
+
+m1 <- procD.lm(shape ~ as.factor(sex) * as.factor(species),
+                data   = gdf,   
+                iter   = 999,
+                seed = NULL,
+                RRPP = TRUE)
+                   
+summary(m1)
+```
+
+"This analysis demonstrated differences in Procrustes coordinates related to species (F = 48.45, df = 59, p = 0.001), sex (F = 12.97, df = 2, p = 0.001), and the interaction of species and sex (F = 1.63, df = 72, p = 0.001)."
+
+My analysis found different F statistics, but the same pattern of significance regarding sex, species, and their interaction. This might be partially a result of the difference in degrees of freedom for the species term, which was 59 in the original report and 58 in mine. The source of this difference is likely related to the following warning I received while running the model: "Because variables in the linear model are redundant, the linear model design has been truncated (via QR decomposition)." I also notice that the td object has 59 tips and 58 internal nodes, so perhaps my dfs are pulling from that instead?
+
+[sex] F = 6.41, df = 2, p = 0.001
+
+[species] F = 7.81, df = 58, p = 0.001
+
+[sex:species] F = 1.39, df = 71, p = 0.001
+
+I also ran this same analysis with 10,000 iterations, since the number was not specified in the publication, and this is more standard for publishing, compared with the 1000 minimum I used initially.
+
+```{r}
+#| warning: FALSE
+
+m1.10k <- procD.lm(shape ~ as.factor(sex) * as.factor(species),
+                data   = gdf,   
+                iter   = 9999,
+                seed = NULL,
+                RRPP = TRUE)
+                   
+summary(m1.10k)
+```
+
+The only meaningful difference when more iterations were performed was that the significance of the interaction term was slightly higher (p = 0.0106).
+
+Because these terms were significant, the following analyses were performed on combined-sex and separated sex samples.
+
+###Phylogeny, Locomotion & Body Size
+
+"To examine the effects of locomotion, body size, and phylogeny on os coxae shape... species means were calculated and phylogenetic analysis of covariance (ANCOVA) models were analyzed... Two sets of models were constructed: one that did not incorporate phylogeny and one that did.
+
+The following 2 chunks organize the existing data so that further analysis can be done on the species level, rather than the individual specimen level.
+
+```{r}
+#1. Make list of locomotion by species
+spec.means <- read.delim("NHP taxon locomotion list means.csv", sep = ",", header = TRUE)
+row.names(spec.means) <- spec.means$taxon #set row names to the taxon variable
+
+#2. Make matrixes that can go into the tree
+loco <- as.matrix(spec.means$loco)
+row.names(loco)<-spec.means$taxon #same row values as above
+View(loco)
+
+#3. Call phylogeny
+#need to use {geiger}
+tree <- read.tree(file = "Springer 2012 tree.txt")
+plot(tree) #just a check, not pretty! 
+#length(tree$tip.label) #tree is class phylo, 372 represented species
+```
+
+```{r}
+#using geiger package to pair up the tree and the data, "prunes" branches that aren't in the set
+
+td <- treedata(tree, shape.means, sort = TRUE, warning = TRUE)
+shape.data <- td$data
+
+td <- treedata(tree, cent.means, sort = TRUE, warning = TRUE)
+size.data <- td$data
+
+td <- treedata(tree, loco, sort = TRUE, warning = TRUE)
+loco.data <- td$data
+
+#the above prunes a bunch of tips to create three versions of the tree based on what is or is not avaiable from our data sets (shape, size, and locomotion
+```
+
+PGLS - Phylogenetic Models
+
+
+
+
+
